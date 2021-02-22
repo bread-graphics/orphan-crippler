@@ -3,6 +3,10 @@ name = "orphan-crippler"
 version = "0.1.0"
 authors = ["not_a_seagull <jtnunley01@gmail.com>"]
 edition = "2018"
+description = "Two-way oneshot channel for task abstraction"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/notgull/orphan-crippler"
+homepage = "https://github.com/notgull/orphan-crippler#readme"
 
 [dependencies]
 parking_lot = { version = "0.11.1", optional = true }
