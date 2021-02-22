@@ -1,5 +1,7 @@
 # orphan-crippler
 
+[![Build Status](https://dev.azure.com/jtnunley01/gui-tools/_apis/build/status/notgull.orphan-crippler?branchName=master)](https://dev.azure.com/jtnunley01/gui-tools/_build/latest?definitionId=14&branchName=master) [![crates.io](https://img.shields.io/crates/v/orphan-crippler)](https://crates.io/crates/orphan-crippler) [![Docs](https://docs.rs/orphan-crippler/badge.svg)](https://docs.rs/orphan-crippler)
+
 The `orphan-crippler` crate is designed to assist in building abstractions where work is offloaded to another
 thread, for reasons such as blocking or OS-specific threads. For this reason, `orphan-crippler` implements the
 Two-Way Oneshot (`two`) channel type, that allows one to send data to another thread and get more data in
