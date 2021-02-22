@@ -156,6 +156,13 @@ impl<R: Any + Send> Receiver<R> {
             Err(_) => panic!("Unable to cast oneshot result to desired value"),
         }
     }
+
+    /// Alias for recv()
+    #[inline]
+    #[must_use]
+    pub fn wait(self) -> R {
+        self.recv()
+    }
 }
 
 impl<R: Any + Send> Future for Receiver<R> {
