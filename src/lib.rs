@@ -93,7 +93,7 @@ pub fn two<I, R: Any + Send>(input: I) -> (Sender<I>, Receiver<R>) {
 pub fn complete<R: Any + Send>(result: R) -> Receiver<R> {
     Receiver {
         inner: Arc::new(Inner {
-            result: Mutex::new(Some(result)),
+            result: Mutex::new(Some(Box::new(result))),
             tow: Mutex::new(ThreadOrWaker::None),
         }),
         _marker: PhantomData,
