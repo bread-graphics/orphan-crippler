@@ -79,9 +79,31 @@ pub fn two<I, R: Any + Send>(input: I) -> (Sender<I>, Receiver<R>) {
     (sender, receiver)
 }
 
+/// Creates a receiver that automatically resolves.
+/// 
+/// # Example
+/// 
+/// ```
+/// use orphan_crippler::complete;
+/// 
+/// let recv = complete::<i32>(6);
+/// assert_eq!(recv.recv(), 6);
+/// ```
+#[inline]
+pub fn complete<R: Any + Send>(result: R) -> Receiver<R> {
+    Receiver {
+        inner: Arc::new(Inner {
+            result: Mutex::new(Some(result)),
+            tow: Mutex::new(ThreadOrWaker::None),
+        }),
+        _marker: PhantomData,
+    }
+}
+
 /* Sender and Receiver structs, for actually using the channel */
 
 /// The sender for the two-way oneshot channel. It is consumed upon sending its data.
+#[must_use]
 pub struct Sender<I> {
     // the part of the heap where the object proper is kept
     inner: Arc<Inner>,
@@ -124,6 +146,7 @@ impl<I> Sender<I> {
 }
 
 /// The receiver for the two-way oneshot channel. It is consumed upon receiving its data.
+#[must_use]
 pub struct Receiver<R> {
     // the part of the heap where the channel is kept
     inner: Arc<Inner>,
