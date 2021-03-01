@@ -80,12 +80,12 @@ pub fn two<I, R: Any + Send>(input: I) -> (Sender<I>, Receiver<R>) {
 }
 
 /// Creates a receiver that automatically resolves.
-/// 
+///
 /// # Example
-/// 
+///
 /// ```
 /// use orphan_crippler::complete;
-/// 
+///
 /// let recv = complete::<i32>(6);
 /// assert_eq!(recv.recv(), 6);
 /// ```
