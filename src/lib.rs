@@ -35,14 +35,20 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::match_wild_err_arm)]
 #![allow(clippy::single_match_else)]
+#![allow(unused_unsafe)]
 
 use std::{
-    any::Any,
+    any::{self, Any},
+    cell::UnsafeCell,
     future::Future,
     marker::PhantomData,
-    mem,
+    mem::{self, MaybeUninit},
     pin::Pin,
-    sync::Arc,
+    ptr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     task::{Context, Poll, Waker},
     thread::{self, Thread},
 };
@@ -62,7 +68,8 @@ use std::sync;
 #[inline]
 pub fn two<I, R: Any + Send>(input: I) -> (Sender<I>, Receiver<R>) {
     let inner = Arc::new(Inner {
-        result: Mutex::new(None),
+        result: UnsafeCell::new(MaybeUninit::uninit()),
+        is_result_set: AtomicBool::new(false),
         tow: Mutex::new(ThreadOrWaker::None),
     });
 
@@ -93,7 +100,8 @@ pub fn two<I, R: Any + Send>(input: I) -> (Sender<I>, Receiver<R>) {
 pub fn complete<R: Any + Send>(result: R) -> Receiver<R> {
     Receiver {
         inner: Arc::new(Inner {
-            result: Mutex::new(Some(Box::new(result))),
+            result: UnsafeCell::new(MaybeUninit::new(Box::new(result))),
+            is_result_set: AtomicBool::new(true),
             tow: Mutex::new(ThreadOrWaker::None),
         }),
         _marker: PhantomData,
@@ -106,7 +114,7 @@ pub fn complete<R: Any + Send>(result: R) -> Receiver<R> {
 #[must_use]
 pub struct Sender<I> {
     // the part of the heap where the object proper is kept
-    inner: Arc<Inner>,
+    inner: Arc<dyn InnerGeneric>,
     // the object we're supposed to be delivering
     input: Option<I>,
 }
@@ -140,7 +148,11 @@ impl<I> Sender<I> {
     /// ```
     #[inline]
     pub fn send<T: Any + Send>(self, res: T) {
-        self.inner.set_result(res);
+        // SAFETY: called before wake(), so we the end user won't be informed that there's a value until
+        //         we're ready
+        unsafe {
+            self.inner.set_result(Box::new(res));
+        }
         self.inner.wake();
     }
 }
@@ -149,7 +161,7 @@ impl<I> Sender<I> {
 #[must_use]
 pub struct Receiver<R> {
     // the part of the heap where the channel is kept
-    inner: Arc<Inner>,
+    inner: Arc<Inner<R>>,
     _marker: PhantomData<Option<R>>,
 }
 
@@ -174,10 +186,7 @@ impl<R: Any + Send> Receiver<R> {
     #[must_use]
     pub fn recv(self) -> R {
         let res = self.inner.park_until_result();
-        match Box::<dyn Any + Send>::downcast::<R>(res) {
-            Ok(res) => *res,
-            Err(_) => panic!("Unable to cast oneshot result to desired value"),
-        }
+        *res
     }
 
     /// Alias for recv()
@@ -193,12 +202,12 @@ impl<R: Any + Send> Future for Receiver<R> {
 
     #[inline]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<R> {
-        match self.inner.get_result() {
-            Some(res) => match Box::<dyn Any + Send>::downcast::<R>(res) {
-                Ok(res) => Poll::Ready(*res),
-                Err(_) => panic!("Unable to cast oneshot result to desired value"),
-            },
-            None => {
+        match self.inner.is_result_set() {
+            true => {
+                // SAFETY: we know the result is set!
+                Poll::Ready(*unsafe { self.inner.get_result() })
+            }
+            false => {
                 *self.inner.tow.lock() = ThreadOrWaker::Waker(cx.waker().clone());
                 Poll::Pending
             }
@@ -207,14 +216,76 @@ impl<R: Any + Send> Future for Receiver<R> {
 }
 
 /// The inner state of the Two.
-struct Inner {
+struct Inner<T> {
     // the parker or waker we're blocked on
     tow: Mutex<ThreadOrWaker>,
+    // whether or not "result" is set
+    is_result_set: AtomicBool,
     // the result to be delivered to the user
-    result: Mutex<Option<Box<dyn Any + Send>>>,
+    result: UnsafeCell<MaybeUninit<Box<T>>>,
 }
 
-impl Inner {
+// SAFETY: result is always protected by tow mutex and is_result_set
+unsafe impl<T: Send> Send for Inner<T> {}
+unsafe impl<T: Send> Sync for Inner<T> {}
+
+impl<T: Any + Send> Inner<T> {
+    #[inline]
+    fn is_result_set(&self) -> bool {
+        self.is_result_set.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    unsafe fn get_result(&self) -> Box<T> {
+        // SAFETY: only ever called when there is only one reference left to the
+        //         Inner<R>, or when we know the other reference is currently
+        //         waiting on "tow" or "is_result_set"
+        unsafe { MaybeUninit::assume_init(ptr::read(self.result.get())) }
+    }
+
+    #[inline]
+    fn park_until_result(&self) -> Box<T> {
+        loop {
+            if self.is_result_set() {
+                // SAFETY: we know the result is set
+                return unsafe { self.get_result() };
+            }
+
+            let cur_thread = thread::current();
+            *self.tow.lock() = ThreadOrWaker::Thread(cur_thread);
+
+            if self.is_result_set() {
+                // SAFETY: see above
+                return unsafe { self.get_result() };
+            }
+
+            thread::park();
+        }
+    }
+}
+
+trait InnerGeneric {
+    unsafe fn set_result(&self, item: Box<dyn Any + Send>);
+    fn wake(&self);
+}
+
+impl<T: Any + Send> InnerGeneric for Inner<T> {
+    #[inline]
+    unsafe fn set_result(&self, item: Box<dyn Any + Send>) {
+        // first, check to ensure we're using the proper type
+        let item = match item.downcast::<T>() {
+            Err(_) => panic!(
+                "Passed item is not of expected type \"{}\"",
+                any::type_name::<T>()
+            ),
+            Ok(item) => item,
+        };
+
+        // SAFETY: only called when is_result_set has yet to be set
+        unsafe { ptr::write(self.result.get(), MaybeUninit::new(item)) };
+        self.is_result_set.store(true, Ordering::Release);
+    }
+
     #[inline]
     fn wake(&self) {
         let mut lock = self.tow.lock();
@@ -222,36 +293,6 @@ impl Inner {
             ThreadOrWaker::None => (),
             ThreadOrWaker::Thread(t) => t.unpark(),
             ThreadOrWaker::Waker(w) => w.wake(),
-        }
-    }
-
-    #[inline]
-    fn get_result(&self) -> Option<Box<dyn Any + Send>> {
-        let mut lock = self.result.lock();
-        lock.take()
-    }
-
-    #[inline]
-    fn set_result<T: Any + Send>(&self, result: T) {
-        let mut lock = self.result.lock();
-        *lock = Some(Box::new(result));
-    }
-
-    #[inline]
-    fn park_until_result(&self) -> Box<dyn Any + Send> {
-        loop {
-            if let Some(res) = self.get_result() {
-                return res;
-            }
-
-            let cur_thread = thread::current();
-            *self.tow.lock() = ThreadOrWaker::Thread(cur_thread);
-
-            if let Some(res) = self.get_result() {
-                return res;
-            }
-
-            thread::park();
         }
     }
 }
@@ -270,6 +311,7 @@ impl Default for ThreadOrWaker {
 }
 
 #[cfg(feature = "parking_lot")]
+#[repr(transparent)]
 struct Mutex<T>(parking_lot::Mutex<T>);
 
 #[cfg(feature = "parking_lot")]

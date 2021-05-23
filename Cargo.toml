@@ -1,6 +1,6 @@
 [package]
 name = "orphan-crippler"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["not_a_seagull <jtnunley01@gmail.com>"]
 edition = "2018"
 description = "Two-way oneshot channel for task abstraction"
