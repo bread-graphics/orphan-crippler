@@ -114,7 +114,7 @@ pub fn complete<R: Any + Send>(result: R) -> Receiver<R> {
 #[must_use]
 pub struct Sender<I> {
     // the part of the heap where the object proper is kept
-    inner: Arc<dyn InnerGeneric>,
+    inner: Arc<dyn InnerGeneric + Send + Sync + 'static>,
     // the object we're supposed to be delivering
     input: Option<I>,
 }
