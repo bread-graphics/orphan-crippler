@@ -209,15 +209,12 @@ impl<R: Any + Send> Future for Receiver<R> {
 
     #[inline]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<R> {
-        match self.inner.is_result_set() {
-            true => {
-                // SAFETY: we know the result is set!
-                Poll::Ready(*unsafe { self.inner.get_result() })
-            }
-            false => {
-                *self.inner.tow.lock() = ThreadOrWaker::Waker(cx.waker().clone());
-                Poll::Pending
-            }
+        if self.inner.is_result_set() {
+            // SAFETY: we know the result is set!
+            Poll::Ready(*unsafe { self.inner.get_result() })
+        } else {
+            *self.inner.tow.lock() = ThreadOrWaker::Waker(cx.waker().clone());
+            Poll::Pending
         }
     }
 }
