@@ -86,6 +86,20 @@ pub fn two<I, R: Any + Send>(input: I) -> (Sender<I>, Receiver<R>) {
     (sender, receiver)
 }
 
+/// Equivalent to [`complete`], but uses a boxed `R` to avoid a layer of indirection, if you already have
+/// one of those.
+#[inline]
+pub fn complete_boxed<R: Any + Send>(boxed: Box<R>) -> Receiver<R> {
+    Receiver {
+        inner: Arc::new(Inner {
+            result: UnsafeCell::new(MaybeUninit::new(boxed)),
+            is_result_set: AtomicBool::new(true),
+            tow: Mutex::new(ThreadOrWaker::None),
+        }),
+        _marker: PhantomData,
+    }
+}
+
 /// Creates a receiver that automatically resolves.
 ///
 /// # Example
@@ -98,14 +112,7 @@ pub fn two<I, R: Any + Send>(input: I) -> (Sender<I>, Receiver<R>) {
 /// ```
 #[inline]
 pub fn complete<R: Any + Send>(result: R) -> Receiver<R> {
-    Receiver {
-        inner: Arc::new(Inner {
-            result: UnsafeCell::new(MaybeUninit::new(Box::new(result))),
-            is_result_set: AtomicBool::new(true),
-            tow: Mutex::new(ThreadOrWaker::None),
-        }),
-        _marker: PhantomData,
-    }
+    complete_boxed(Box::new(result))
 }
 
 /* Sender and Receiver structs, for actually using the channel */
