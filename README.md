@@ -1,3 +1,7 @@
+# Deprecated
+
+[`crossbeam_channel`](https://crates.io/crates/crossbeam-channel) and [`async_channel`](https://crates.io/crates/async-channel) have more efficient and more well-tested single-item channels than this crate does. From this point on, this crate is deprecated.
+
 # orphan-crippler
 
 [![Build Status](https://dev.azure.com/jtnunley01/gui-tools/_apis/build/status/notgull.orphan-crippler?branchName=master)](https://dev.azure.com/jtnunley01/gui-tools/_build/latest?definitionId=14&branchName=master) [![crates.io](https://img.shields.io/crates/v/orphan-crippler)](https://crates.io/crates/orphan-crippler) [![Docs](https://docs.rs/orphan-crippler/badge.svg)](https://docs.rs/orphan-crippler)

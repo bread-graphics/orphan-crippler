@@ -32,6 +32,7 @@
 //! rather than `std::sync` mutexes. This is recommended if you are using `parking_lot` mutexes elsewhere in your
 //! application.
 
+#![deprecated = "use crossbeam_channel instead"]
 #![warn(clippy::pedantic)]
 #![allow(clippy::match_wild_err_arm)]
 #![allow(clippy::single_match_else)]

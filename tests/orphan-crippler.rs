@@ -1,5 +1,7 @@
 // MIT/Apache2 License
 
+#![allow(deprecated)]
+
 use orphan_crippler::{two, Sender};
 use std::{sync::mpsc, thread};
 
